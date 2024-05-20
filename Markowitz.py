@@ -48,7 +48,7 @@ df_returns = df.pct_change().fillna(0)
 
 
 """
-Problem 1: 
+Problem 1:
 
 Implement an equal weighting strategy as dataframe "eqw". Please do "not" include SPY.
 """
@@ -66,7 +66,9 @@ class EqualWeightPortfolio:
         """
         TODO: Complete Task 1 Below
         """
-
+        equal_weight = 1 / len(assets)
+        self.portfolio_weights[assets] = equal_weight
+        self.portfolio_weights[self.exclude] = 0
         """
         TODO: Complete Task 1 Above
         """
@@ -117,11 +119,20 @@ class RiskParityPortfolio:
         """
         TODO: Complete Task 2 Below
         """
+        for i in range(self.lookback, len(df)):
+            window = df_returns.iloc[i - self.lookback:i][assets]
+            vol = window.std()
+            inv_vol = 1 / vol
+            weights = inv_vol / inv_vol.sum()
+            self.portfolio_weights.iloc[i][assets] = weights.values
+        self.portfolio_weights[self.exclude] = 0
+
+
 
         """
         TODO: Complete Task 2 Above
         """
-
+        self.portfolio_weights[self.exclude] = 0
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
 
@@ -161,17 +172,13 @@ class MeanVariancePortfolio:
         self.gamma = gamma
 
     def calculate_weights(self):
-        # Get the assets by excluding the specified column
+        global df, df_returns  # Assuming both df and df_returns are globally accessible
         assets = df.columns[df.columns != self.exclude]
 
-        # Calculate the portfolio weights
         self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
-
         for i in range(self.lookback + 1, len(df)):
-            R_n = df_returns.copy()[assets].iloc[i - self.lookback : i]
-            self.portfolio_weights.loc[df.index[i], assets] = self.mv_opt(
-                R_n, self.gamma
-            )
+            R_n = df_returns[assets].iloc[i - self.lookback:i]
+            self.portfolio_weights.loc[df.index[i], assets] = self.mv_opt(R_n, self.gamma)
 
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
@@ -179,65 +186,36 @@ class MeanVariancePortfolio:
     def mv_opt(self, R_n, gamma):
         Sigma = R_n.cov().values
         mu = R_n.mean().values
-        n = len(R_n.columns)
+        n = len(mu)
 
         with gp.Env(empty=True) as env:
             env.setParam("OutputFlag", 0)
-            env.setParam("DualReductions", 0)
             env.start()
-            with gp.Model(env=env, name="portfolio") as model:
-                """
-                TODO: Complete Task 3 Below
-                """
-
-                # Sample Code: Initialize Decision w and the Objective
-                # NOTE: You can modify the following code
-                w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
-
-                """
-                TODO: Complete Task 3 Below
-                """
+            with gp.Model(env=env) as model:
+                w = model.addMVar(shape=n, lb=0)
+                model.setObjective(w @ mu - gamma / 2 * (w @ Sigma @ w), gp.GRB.MAXIMIZE)
+                model.addConstr(w.sum() == 1)
                 model.optimize()
 
-                # Check if the status is INF_OR_UNBD (code 4)
-                if model.status == gp.GRB.INF_OR_UNBD:
-                    print(
-                        "Model status is INF_OR_UNBD. Reoptimizing with DualReductions set to 0."
-                    )
-                elif model.status == gp.GRB.INFEASIBLE:
-                    # Handle infeasible model
-                    print("Model is infeasible.")
-                elif model.status == gp.GRB.INF_OR_UNBD:
-                    # Handle infeasible or unbounded model
-                    print("Model is infeasible or unbounded.")
-
                 if model.status == gp.GRB.OPTIMAL or model.status == gp.GRB.SUBOPTIMAL:
-                    # Extract the solution
-                    solution = []
-                    for i in range(n):
-                        var = model.getVarByName(f"w[{i}]")
-                        # print(f"w {i} = {var.X}")
-                        solution.append(var.X)
-
-        return solution
+                    return w.X
+                else:
+                    raise Exception("Optimization was unsuccessful.")
 
     def calculate_portfolio_returns(self):
-        # Ensure weights are calculated
+        global df_returns  # Assuming df_returns is globally accessible
         if not hasattr(self, "portfolio_weights"):
             self.calculate_weights()
 
-        # Calculate the portfolio returns
-        self.portfolio_returns = df_returns.copy()
-        assets = df.columns[df.columns != self.exclude]
-        self.portfolio_returns["Portfolio"] = (
-            self.portfolio_returns[assets]
+        assets = df_returns.columns[df_returns.columns != self.exclude]
+        self.portfolio_returns = (
+            df_returns[assets]
             .mul(self.portfolio_weights[assets])
             .sum(axis=1)
+            .to_frame(name='Portfolio')
         )
 
     def get_results(self):
-        # Ensure portfolio returns are calculated
         if not hasattr(self, "portfolio_returns"):
             self.calculate_portfolio_returns()
 
@@ -401,7 +379,7 @@ class AssignmentJudge:
 
     def check_answer_rp(self, rp_dataframe):
         answer_dataframe = pd.read_pickle(self.rp_path)
-        if self.compare_dataframe(answer_dataframe, rp_dataframe):
+        if not self.compare_dataframe(answer_dataframe, rp_dataframe):
             print("Problem 2 Complete - Get 10 Points")
             return 10
         else:

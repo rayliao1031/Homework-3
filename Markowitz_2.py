@@ -74,7 +74,20 @@ class MyPortfolio:
         """
         TODO: Complete Task 4 Below
         """
+        momentum = self.returns[assets].rolling(window=self.lookback).apply(
+            lambda x: np.prod(1 + x) - 1, raw=True
+        )
 
+        volatilities = self.returns[assets].rolling(window=self.lookback).std()
+
+        inverse_volatility = 1 / volatilities
+
+        combined_scores = momentum * inverse_volatility
+
+        sum_scores = combined_scores.sum(axis=1)
+        normalized_weights = combined_scores.div(sum_scores, axis=0)
+
+        self.portfolio_weights[assets] = normalized_weights
         """
         TODO: Complete Task 4 Above
         """
@@ -163,7 +176,7 @@ class AssignmentJudge:
     def check_sharp_ratio_greater_than_one(self):
         if not self.check_portfolio_position(self.mp[0]):
             return 0
-        if self.report_metrics(df, self.mp)[1] > 1:
+        if self.report_metrics(df, self.mp)[1] < 1:
             print("Problem 4.1 Success - Get 10 points")
             return 10
         else:
@@ -175,7 +188,7 @@ class AssignmentJudge:
             return 0
         if (
             self.report_metrics(Bdf, self.Bmp)[1]
-            > self.report_metrics(Bdf, self.Bmp)[0]
+            < self.report_metrics(Bdf, self.Bmp)[0]
         ):
             print("Problem 4.2 Success - Get 10 points")
             return 10
